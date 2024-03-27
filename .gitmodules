@@ -1,3 +1,4 @@
 [submodule "libs/lodepng"]
 	path = libs/lodepng
 	url = https://github.com/lvandeve/lodepng
+  ignore = dirty
