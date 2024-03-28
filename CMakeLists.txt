@@ -15,4 +15,4 @@ link_directories(libs/lodepng/)
 target_include_directories(lodepng PUBLIC libs/lodepng)
 
 add_executable(sequentail sequential/main.c )
-target_link_libraries(sequentail lodepng)
+target_link_libraries(sequentail lodepng m)
