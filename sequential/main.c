@@ -32,6 +32,20 @@ void encode_image(struct Image *image, const char *filename) {
     printf("error %u: %s\n", error, lodepng_error_text(error));
 }
 
+void gray_scale_image(struct Image *image){
+  for (unsigned i = 0; i < image->width; i++) {
+    for (unsigned j = 0; j < image->height; j++) {
+      unsigned char r = image->data[j * image->width * 4 + i * 4];
+      unsigned char g = image->data[j * image->width * 4 + i * 4 + 1];
+      unsigned char b = image->data[j * image->width * 4 + i * 4 + 2];
+      unsigned char gray = 0.3 * r + 0.59 * g + 0.11 * b;
+      image->data[j * image->width * 4 + i * 4] = gray;
+      image->data[j * image->width * 4 + i * 4 + 1] = gray;
+      image->data[j * image->width * 4 + i * 4 + 2] = gray;
+    }
+  }
+}
+
 void guassian_kernel(int size, float *kernel) {
   float sigma = 1.0;
   float sum = 0.0;
@@ -93,7 +107,8 @@ int main(int argc, char *argv[]) {
 
   printf("Image width: %d\n", image.width);
   printf("Image height: %d\n", image.height);
-
+  
+  gray_scale_image(&image);
   gaussian_filter(&image, 5);
 
   encode_image(&image, filename);
