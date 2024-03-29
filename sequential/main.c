@@ -140,9 +140,6 @@ void normalize(short *data, unsigned int size) {
 short *gradinet_direction(short *gradient_x, short *gradient_y,
                           unsigned short height, short int width) {
   short *out = malloc(height * width * sizeof(short));
-  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
-    out[i] = 0;
-  }
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
       short gx = gradient_x[j * width + i];
@@ -156,10 +153,6 @@ short *gradinet_direction(short *gradient_x, short *gradient_y,
 short *gradient_intensity(short *gradient_x, short *gradient_y,
                           short int height, short int width) {
   short *out = malloc(height * width * sizeof(short));
-  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
-    out[i] = 0;
-  }
-
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
       short gx = gradient_x[j * width + i];
@@ -174,10 +167,6 @@ short *gradient_intensity(short *gradient_x, short *gradient_y,
 short *non_maximum(short *gradient_int, short *gradient_dir, short int height,
                    short int width) {
   short *out = malloc(height * width * sizeof(short));
-  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
-    out[i] = 0;
-  }
-
   for (unsigned short i = 1; i < width - 1; i++) {
     for (unsigned short j = 1; j < height - 1; j++) {
       short dir = gradient_dir[j * width + i];
@@ -209,10 +198,70 @@ short *non_maximum(short *gradient_int, short *gradient_dir, short int height,
   return out;
 }
 
+short *threshold(short *data, short int height, short int width, float low_ratio, float high_ratio) {
+  short *out = malloc(height * width * sizeof(short));
+
+  short max = 0;
+  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
+    max = max > data[i] ? max : data[i];
+  }
+
+  short high_threshold = max * low_ratio;
+  short low_threshold = high_threshold * high_ratio;
+
+  for (unsigned short i = 0; i < width; i++) {
+    for (unsigned short j = 0; j < height; j++) {
+      if (data[j * width + i] > high_threshold) {
+        out[j * width + i] = 255;
+      } else if (data[j * width + i] < low_threshold) {
+        out[j * width + i] = 0;
+      } else {
+        out[j * width + i] = 25;
+      }
+    }
+  }
+
+  return out;
+}
+
+short *hysterisis(short *data, short int height, short int width) {
+  short *out = malloc(height * width * sizeof(short));
+  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
+    out[i] = data[i];
+  }
+
+  for (unsigned short i = 1; i < width - 1; i++) {
+    for (unsigned short j = 1; j < height - 1; j++) {
+      if (data[j * width + i] == 25) {
+        if (data[(j - 1) * width + i - 1] == 255 ||
+            data[(j - 1) * width + i] == 255 ||
+            data[(j - 1) * width + i + 1] == 255 ||
+            data[j * width + i - 1] == 255 || data[j * width + i + 1] == 255 ||
+            data[(j + 1) * width + i - 1] == 255 ||
+            data[(j + 1) * width + i] == 255 ||
+            data[(j + 1) * width + i + 1] == 255) {
+          out[j * width + i] = 255;
+        } else {
+          out[j * width + i] = 0;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    printf("Usage: %s <filename>\n", argv[0]);
+  short kernel_size = 5;
+  float low_ratio = 0.1;
+  float high_ratio = 0.3;
+  if (argc < 5 && argc != 2) {
+    printf("Usage: %s <filename> <kernel_size> <low_ratio> <high_ratio>\n", argv[0]);
     return 1;
+  }
+  if (argc == 5) {
+    kernel_size = atoi(argv[2]);
+    low_ratio = atof(argv[3]);
+    high_ratio = atof(argv[4]);
   }
   const char *filename = argv[1];
   struct Image image = decode_image_gray(filename);
@@ -220,7 +269,7 @@ int main(int argc, char *argv[]) {
   printf("Image width: %d\n", image.width);
   printf("Image height: %d\n", image.height);
 
-  gaussian_filter(&image, 5);
+  gaussian_filter(&image, kernel_size);
 
   short *gradient_y = sobel_y(&image);
   short *gradient_x = sobel_x(&image);
@@ -230,9 +279,17 @@ int main(int argc, char *argv[]) {
       gradinet_direction(gradient_x, gradient_y, image.height, image.width);
   short *non_max =
       non_maximum(gradient_int, gradient_dir, image.height, image.width);
-  normalize(non_max, image.width * image.height);
-  image.data = non_max;
-  encode_image(&image, filename);
+  short *thre = threshold(non_max, image.height, image.width, low_ratio, high_ratio);
+  short *hyste = hysterisis(non_max, image.height, image.width);
   free(image.data);
+  image.data = hyste;
+  encode_image(&image, filename);
+  free(gradient_x);
+  free(gradient_y);
+  free(gradient_int);
+  free(gradient_dir);
+  free(non_max);
+  free(thre);
+  free(hyste);
   return 0;
 }
