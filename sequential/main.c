@@ -132,6 +132,40 @@ void normalize(short *data, int size) {
   }
 }
 
+short *gradinet_direction(short *gradient_x, short *gradient_y,
+                          unsigned short height, short int width) {
+  short *out = malloc(height * width * sizeof(short));
+  for (unsigned short i = 0; i < height * width; i++) {
+    out[i] = 0;
+  }
+  for (unsigned short i = 0; i < width; i++) {
+    for (unsigned short j = 0; j < height; j++) {
+      short gx = gradient_x[j * width + i];
+      short gy = gradient_y[j * width + i];
+      out[j * width + i] = atan2(gy, gx) * 180 / M_PI;
+    }
+  }
+  return out;
+}
+
+short *gradient_intensity(short *gradient_x, short *gradient_y,
+                          short int height, short int width) {
+  short *out = malloc(height * width * sizeof(short));
+  for (unsigned short i = 0; i < height * width; i++) {
+    out[i] = 0;
+  }
+
+  for (unsigned short i = 0; i < width; i++) {
+    for (unsigned short j = 0; j < height; j++) {
+      short gx = gradient_x[j * width + i];
+      short gy = gradient_y[j * width + i];
+      out[j * width + i] = sqrt(gx * gx + gy * gy);
+    }
+  }
+
+  return out;
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 2) {
     printf("Usage: %s <filename>\n", argv[0]);
@@ -147,9 +181,14 @@ int main(int argc, char *argv[]) {
 
   short *gradient_y = sobel_y(&image);
   short *gradient_x = sobel_x(&image);
-  normalize(gradient_y, image.width * image.height);
-  normalize(gradient_x, image.width * image.height);
+  short *gradient_int =
+      gradient_intensity(gradient_x, gradient_y, image.height, image.width);
+  normalize(gradient_int, image.height * image.width);
+  short *gradient_dir =
+      gradinet_direction(gradient_x, gradient_y, image.height, image.width);
+  normalize(gradient_dir, image.height * image.width);
 
+  image.data = gradient_dir;
   encode_image(&image, filename);
   free(image.data);
   return 0;
