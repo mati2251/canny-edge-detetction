@@ -1,21 +1,41 @@
-#include "lodepng.h"
 #include <lodepng.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 struct Image {
-  unsigned char *data;
-  unsigned width;
-  unsigned height;
+  short *data;
+  unsigned short width;
+  unsigned short height;
 };
 
-void decode_image(struct Image *image, const char *filename) {
+short *gray_scale_image(unsigned char *data, unsigned width, unsigned height) {
+  short *image = malloc(width * height * sizeof(short) * 4);
+  for (unsigned i = 0; i < width; i++) {
+    for (unsigned j = 0; j < height; j++) {
+      unsigned char r = data[j * width * 4 + i * 4];
+      unsigned char g = data[j * width * 4 + i * 4 + 1];
+      unsigned char b = data[j * width * 4 + i * 4 + 2];
+      image[j * width + i] = 0.3 * r + 0.59 * g + 0.11 * b;
+    }
+  }
+  return image;
+}
+
+struct Image decode_image_gray(const char *filename) {
   unsigned error;
-  error = lodepng_decode32_file(&image->data, &image->width, &image->height,
-                                filename);
+  unsigned width, height;
+  unsigned char *data;
+  error = lodepng_decode32_file(&data, &width, &height, filename);
   if (error)
     printf("error %u: %s\n", error, lodepng_error_text(error));
+  struct Image *image;
+  image = malloc(width * height * sizeof(short) + 2 * sizeof(unsigned short));
+  image->data = gray_scale_image(data, width, height);
+  image->width = width;
+  image->height = height;
+  free(data);
+  return *image;
 }
 
 void encode_image(struct Image *image, const char *filename) {
@@ -26,27 +46,51 @@ void encode_image(struct Image *image, const char *filename) {
   new_filename[strlen(new_filename) - 4] = '\0';
   strcat(new_filename, "_edge.png");
 
-  error = lodepng_encode32_file(new_filename, image->data, image->width,
-                                image->height);
+  unsigned char *data = malloc(image->width * image->height * 4);
+
+  for (unsigned i = 0; i < image->width; i++) {
+    for (unsigned j = 0; j < image->height; j++) {
+      unsigned char value = image->data[j * image->width + i];
+      data[j * image->width * 4 + i * 4] = value;
+      data[j * image->width * 4 + i * 4 + 1] = value;
+      data[j * image->width * 4 + i * 4 + 2] = value;
+      data[j * image->width * 4 + i * 4 + 3] = 255;
+    }
+  }
+
+  error =
+      lodepng_encode32_file(new_filename, data, image->width, image->height);
+  free(data);
   if (error)
     printf("error %u: %s\n", error, lodepng_error_text(error));
 }
 
-void gray_scale_image(struct Image *image){
-  for (unsigned i = 0; i < image->width; i++) {
-    for (unsigned j = 0; j < image->height; j++) {
-      unsigned char r = image->data[j * image->width * 4 + i * 4];
-      unsigned char g = image->data[j * image->width * 4 + i * 4 + 1];
-      unsigned char b = image->data[j * image->width * 4 + i * 4 + 2];
-      unsigned char gray = 0.3 * r + 0.59 * g + 0.11 * b;
-      image->data[j * image->width * 4 + i * 4] = gray;
-      image->data[j * image->width * 4 + i * 4 + 1] = gray;
-      image->data[j * image->width * 4 + i * 4 + 2] = gray;
+short *conv(struct Image *image, float *kernel, short kernel_size) {
+  short border = kernel_size / 2;
+  short *out = malloc(image->width * image->height * sizeof(short));
+  for (unsigned i = 0; i < image->width * image->height; i++) {
+    out[i] = 0;
+  }
+
+  for (unsigned short i = 0; i < image->width; i++) {
+    for (unsigned short j = 0; j < image->height; j++) {
+      for (short m = -border; m <= border; m++) {
+        for (short n = -border; n <= border; n++) {
+          if ((short)(m + i) >= 0 && i + m < image->width &&
+              (short)(j + n) >= 0 && j + n < image->height) {
+            out[j * image->width + i] +=
+                image->data[(j + n) * image->width + i + m] *
+                kernel[(n + border) * kernel_size + (m + border)];
+          }
+        }
+      }
     }
   }
+  return out;
 }
 
-void guassian_kernel(int size, float *kernel) {
+float *guassian_kernel(short size) {
+  float *kernel = malloc(size * sizeof(float));
   float sigma = 1.0;
   float sum = 0.0;
   for (int i = 0; i < size; i++) {
@@ -57,43 +101,35 @@ void guassian_kernel(int size, float *kernel) {
   for (int i = 0; i < size; i++) {
     kernel[i] /= sum;
   }
+  return kernel;
 }
 
-void gaussian_filter(struct Image *image, int kernel_size) {
-  int border = kernel_size / 2;
-  float *kernel = malloc(kernel_size * sizeof(float));
-  guassian_kernel(kernel_size, kernel);
-
-  unsigned char *new_image = malloc(image->width * image->height * 4);
-  for (unsigned i = 0; i < image->width * image->height * 4; i++) {
-    new_image[i] = 0;
-  }
-
-  for (unsigned i = 0; i < image->width; i++) {
-    for (unsigned j = 0; j < image->height; j++) {
-      for (int m = -border; m <= border; m++) {
-        for (int n = -border; n <= border; n++) {
-          if ((int)(m + i) >= 0 && i + m < image->width && (int)(j + n) >= 0 &&
-              j + n < image->height) {
-            new_image[j * image->width * 4 + i * 4] +=
-                image->data[(j + n) * image->width * 4 + (i + m) * 4] *
-                kernel[m + border] * kernel[n + border];
-            new_image[j * image->width * 4 + i * 4 + 1] +=
-                image->data[(j + n) * image->width * 4 + (i + m) * 4 + 1] *
-                kernel[m + border] * kernel[n + border];
-            new_image[j * image->width * 4 + i * 4 + 2] +=
-                image->data[(j + n) * image->width * 4 + (i + m) * 4 + 2] *
-                kernel[m + border] * kernel[n + border];
-            new_image[j * image->width * 4 + i * 4 + 3] = 255;
-          }
-        }
-      }
-    }
-  }
-
+void gaussian_filter(struct Image *image, short kernel_size) {
+  float *kernel = guassian_kernel(kernel_size);
+  short *filtered = conv(image, kernel, kernel_size);
   free(image->data);
-  free(kernel);
-  image->data = new_image;
+  image->data = filtered;
+}
+
+short *sobel_x(struct Image *image) {
+  float kernel[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+  return conv(image, kernel, 3);
+}
+
+short *sobel_y(struct Image *image) {
+  float kernel[9] = {-1, -2, -1, 0, 0, 0, 1, 2, 1};
+  return conv(image, kernel, 3);
+}
+
+void normalize(short *data, int size) {
+  short max = 0, min = 0;
+  for (unsigned short i = 0; i < size; i++) {
+    max = max > data[i] ? max : data[i];
+    min = min < data[i] ? min : data[i];
+  }
+  for (unsigned short i = 0; i < size; i++) {
+    data[i] = (float)(data[i] - min) / (max - min) * 255;
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -102,14 +138,17 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   const char *filename = argv[1];
-  struct Image image;
-  decode_image(&image, filename);
+  struct Image image = decode_image_gray(filename);
 
   printf("Image width: %d\n", image.width);
   printf("Image height: %d\n", image.height);
-  
-  gray_scale_image(&image);
+
   gaussian_filter(&image, 5);
+
+  short *gradient_y = sobel_y(&image);
+  short *gradient_x = sobel_x(&image);
+  normalize(gradient_y, image.width * image.height);
+  normalize(gradient_x, image.width * image.height);
 
   encode_image(&image, filename);
   free(image.data);
