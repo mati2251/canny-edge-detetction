@@ -68,7 +68,7 @@ void encode_image(struct Image *image, const char *filename) {
 short *conv(struct Image *image, float *kernel, short kernel_size) {
   short border = kernel_size / 2;
   short *out = malloc(image->width * image->height * sizeof(short));
-  for (unsigned i = 0; i < image->width * image->height; i++) {
+  for (unsigned int i = 0; i < image->width * image->height; i++) {
     out[i] = 0;
   }
 
@@ -90,16 +90,21 @@ short *conv(struct Image *image, float *kernel, short kernel_size) {
 }
 
 float *guassian_kernel(short size) {
-  float *kernel = malloc(size * sizeof(float));
-  float sigma = 1.0;
-  float sum = 0.0;
-  for (int i = 0; i < size; i++) {
-    int x = i - size / 2;
-    kernel[i] = exp(-x * x / (2 * sigma * sigma)) / (sqrt(2 * M_PI) * sigma);
-    sum += kernel[i];
+  float *kernel = malloc(size * size * sizeof(double));
+  float sigma = 1;
+  float sum = 0;
+  short border = size / 2;
+  for (short i = -border; i <= border; i++) {
+    for (short j = -border; j <= border; j++) {
+      kernel[(i + border) * size + (j + border)] =
+          exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma);
+      sum += kernel[(i + border) * size + (j + border)];
+    }
   }
-  for (int i = 0; i < size; i++) {
-    kernel[i] /= sum;
+  for (short i = 0; i < size; i++) {
+    for (short j = 0; j < size; j++) {
+      kernel[i * size + j] /= sum;
+    }
   }
   return kernel;
 }
@@ -121,13 +126,13 @@ short *sobel_y(struct Image *image) {
   return conv(image, kernel, 3);
 }
 
-void normalize(short *data, int size) {
+void normalize(short *data, unsigned int size) {
   short max = 0, min = 0;
-  for (unsigned short i = 0; i < size; i++) {
+  for (unsigned int i = 0; i < size; i++) {
     max = max > data[i] ? max : data[i];
     min = min < data[i] ? min : data[i];
   }
-  for (unsigned short i = 0; i < size; i++) {
+  for (unsigned int i = 0; i < size; i++) {
     data[i] = (float)(data[i] - min) / (max - min) * 255;
   }
 }
@@ -135,7 +140,7 @@ void normalize(short *data, int size) {
 short *gradinet_direction(short *gradient_x, short *gradient_y,
                           unsigned short height, short int width) {
   short *out = malloc(height * width * sizeof(short));
-  for (unsigned short i = 0; i < height * width; i++) {
+  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
     out[i] = 0;
   }
   for (unsigned short i = 0; i < width; i++) {
@@ -151,7 +156,7 @@ short *gradinet_direction(short *gradient_x, short *gradient_y,
 short *gradient_intensity(short *gradient_x, short *gradient_y,
                           short int height, short int width) {
   short *out = malloc(height * width * sizeof(short));
-  for (unsigned short i = 0; i < height * width; i++) {
+  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
     out[i] = 0;
   }
 
@@ -163,6 +168,44 @@ short *gradient_intensity(short *gradient_x, short *gradient_y,
     }
   }
 
+  return out;
+}
+
+short *non_maximum(short *gradient_int, short *gradient_dir, short int height,
+                   short int width) {
+  short *out = malloc(height * width * sizeof(short));
+  for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
+    out[i] = 0;
+  }
+
+  for (unsigned short i = 1; i < width - 1; i++) {
+    for (unsigned short j = 1; j < height - 1; j++) {
+      short dir = gradient_dir[j * width + i];
+      short value = gradient_int[j * width + i];
+      short r = 0, q = 0;
+      if (dir < 0) {
+        dir += 180;
+      }
+      if (dir <= 22.5 || dir > 157.5) {
+        r = gradient_int[(j + 1) * width + i];
+        q = gradient_int[(j - 1) * width + i];
+      } else if (dir <= 67.5) {
+        r = gradient_int[(j + 1) * width + i - 1];
+        q = gradient_int[(j - 1) * width + i + 1];
+      } else if (dir <= 112.5) {
+        r = gradient_int[j * width + i - 1];
+        q = gradient_int[j * width + i + 1];
+      } else {
+        r = gradient_int[(j + 1) * width + i + 1];
+        q = gradient_int[(j - 1) * width + i - 1];
+      }
+      if (value >= r && value >= q) {
+        out[j * width + i] = value;
+      } else {
+        out[j * width + i] = 0;
+      }
+    }
+  }
   return out;
 }
 
@@ -183,12 +226,12 @@ int main(int argc, char *argv[]) {
   short *gradient_x = sobel_x(&image);
   short *gradient_int =
       gradient_intensity(gradient_x, gradient_y, image.height, image.width);
-  normalize(gradient_int, image.height * image.width);
   short *gradient_dir =
       gradinet_direction(gradient_x, gradient_y, image.height, image.width);
-  normalize(gradient_dir, image.height * image.width);
-
-  image.data = gradient_dir;
+  short *non_max =
+      non_maximum(gradient_int, gradient_dir, image.height, image.width);
+  normalize(non_max, image.width * image.height);
+  image.data = non_max;
   encode_image(&image, filename);
   free(image.data);
   return 0;
