@@ -38,13 +38,15 @@ struct Image *decode_image_gray(const char *filename) {
   return image;
 }
 
-void encode_image(struct Image *image, const char *filename) {
+void encode_image(struct Image *image, const char *filename,
+                  const char *prefix) {
   unsigned error;
 
-  char *new_filename = malloc(strlen(filename) + 6);
+  char *new_filename = malloc(strlen(filename) + strlen(prefix) + 4);
   strcpy(new_filename, filename);
   new_filename[strlen(new_filename) - 4] = '\0';
-  strcat(new_filename, "_edge.png");
+  strcat(new_filename, prefix);
+  strcat(new_filename, ".png");
 
   unsigned char *data = malloc(image->width * image->height * 4);
 
@@ -60,7 +62,6 @@ void encode_image(struct Image *image, const char *filename) {
 
   error =
       lodepng_encode32_file(new_filename, data, image->width, image->height);
-  free(new_filename);
   free(data);
   if (error)
     printf("error %u: %s\n", error, lodepng_error_text(error));
@@ -90,9 +91,8 @@ short *conv(struct Image *image, float *kernel, short kernel_size) {
   return out;
 }
 
-float *guassian_kernel(short size) {
+float *guassian_kernel(short size, float sigma) {
   float *kernel = malloc(size * size * sizeof(double));
-  float sigma = 1;
   float sum = 0;
   short border = size / 2;
   for (short i = -border; i <= border; i++) {
@@ -110,8 +110,8 @@ float *guassian_kernel(short size) {
   return kernel;
 }
 
-void gaussian_filter(struct Image *image, short kernel_size) {
-  float *kernel = guassian_kernel(kernel_size);
+void gaussian_filter(struct Image *image, short kernel_size, float sigma) {
+  float *kernel = guassian_kernel(kernel_size, sigma);
   short *filtered = conv(image, kernel, kernel_size);
   free(image->data);
   image->data = filtered;
@@ -182,20 +182,20 @@ short *non_maximum(short *gradient_int, short *gradient_dir, short int height,
     for (unsigned short j = 1; j < height - 1; j++) {
       short dir = gradient_dir[j * width + i];
       short value = gradient_int[j * width + i];
-      short r = 0, q = 0;
+      short r = 255, q = 255;
       if (dir < 0) {
         dir += 180;
       }
-      if (dir <= 22.5 || dir > 157.5) {
-        r = gradient_int[(j + 1) * width + i];
-        q = gradient_int[(j - 1) * width + i];
-      } else if (dir <= 67.5) {
+      if (dir <= 22 || dir > 157) {
+        r = gradient_int[(j - 1) * width + i];
+        q = gradient_int[(j + 1) * width + i];
+      } else if (dir <= 67) {
         r = gradient_int[(j + 1) * width + i - 1];
         q = gradient_int[(j - 1) * width + i + 1];
-      } else if (dir <= 112.5) {
+      } else if (dir <= 112) {
         r = gradient_int[j * width + i - 1];
         q = gradient_int[j * width + i + 1];
-      } else {
+      } else if (dir <= 157) {
         r = gradient_int[(j + 1) * width + i + 1];
         q = gradient_int[(j - 1) * width + i - 1];
       }
@@ -223,12 +223,12 @@ short *threshold(short *data, short int height, short int width,
 
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
-      if (data[j * width + i] > high_threshold) {
+      if (data[j * width + i] >= high_threshold) {
         out[j * width + i] = 255;
       } else if (data[j * width + i] < low_threshold) {
         out[j * width + i] = 0;
       } else {
-        out[j * width + i] = 25;
+        out[j * width + i] = 125;
       }
     }
   }
@@ -244,7 +244,7 @@ short *hysterisis(short *data, short int height, short int width) {
 
   for (unsigned short i = 1; i < width - 1; i++) {
     for (unsigned short j = 1; j < height - 1; j++) {
-      if (data[j * width + i] == 25) {
+      if (data[j * width + i] == 125) {
         if (data[(j - 1) * width + i - 1] == 255 ||
             data[(j - 1) * width + i] == 255 ||
             data[(j - 1) * width + i + 1] == 255 ||
@@ -263,27 +263,31 @@ short *hysterisis(short *data, short int height, short int width) {
 }
 
 int main(int argc, char *argv[]) {
-  short kernel_size = 5;
+  short kernel_size = 3;
   float low_ratio = 0.1;
   float high_ratio = 0.3;
-  if (argc < 5 && argc != 2) {
-    printf("Usage: %s <filename> <kernel_size> <low_ratio> <high_ratio>\n",
-           argv[0]);
+  float sigma = 1.0;
+  if (argc < 6 && argc != 2) {
+    printf(
+        "Usage: %s <filename> <sigma> <kernel_size> <low_ratio> <high_ratio>\n",
+        argv[0]);
     return 1;
   }
   if (argc == 5) {
-    kernel_size = atoi(argv[2]);
-    low_ratio = atof(argv[3]);
-    high_ratio = atof(argv[4]);
+    sigma = atof(argv[2]);
+    kernel_size = atoi(argv[3]);
+    low_ratio = atof(argv[4]);
+    high_ratio = atof(argv[5]);
   }
   const char *filename = argv[1];
   struct Image *image = decode_image_gray(filename);
 
   printf("Image width: %d\n", image->width);
   printf("Image height: %d\n", image->height);
+  encode_image(image, filename, "_gray");
 
-  gaussian_filter(image, kernel_size);
-
+  gaussian_filter(image, kernel_size, sigma);
+  encode_image(image, filename, "_gaussian");
   short *gradient_y = sobel_y(image);
   short *gradient_x = sobel_x(image);
   short *gradient_int =
@@ -297,7 +301,16 @@ int main(int argc, char *argv[]) {
   short *hyste = hysterisis(non_max, image->height, image->width);
   free(image->data);
   image->data = hyste;
-  encode_image(image, filename);
+  encode_image(image, filename, "_edge");
+  image->data = gradient_int;
+  encode_image(image, filename, "_gradient");
+  normalize(gradient_dir, image->width * image->height);
+  image->data = gradient_dir;
+  encode_image(image, filename, "_direction");
+  image->data = thre;
+  encode_image(image, filename, "_threshold");
+  image->data = non_max;
+  encode_image(image, filename, "_non_max");
   free(gradient_x);
   free(gradient_y);
   free(gradient_int);
