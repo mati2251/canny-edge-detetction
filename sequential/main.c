@@ -221,7 +221,7 @@ short *threshold(short *data, short int height, short int width,
   }
 
   short high_threshold = max * high_ratio;
-  short low_threshold = high_threshold * low_ratio;
+  short low_threshold = max * low_ratio;
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
       if (data[j * width + i] >= high_threshold) {
