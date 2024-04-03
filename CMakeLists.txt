@@ -14,5 +14,5 @@ include_directories(libs/lodepng/)
 link_directories(libs/lodepng/)
 target_include_directories(lodepng PUBLIC libs/lodepng)
 
-add_executable(sequentail sequential/main.c )
-target_link_libraries(sequentail lodepng m)
+add_executable(sequential sequential/main.c )
+target_link_libraries(sequential lodepng m)
