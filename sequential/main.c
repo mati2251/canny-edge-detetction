@@ -63,6 +63,7 @@ void encode_image(struct Image *image, const char *filename,
   error =
       lodepng_encode32_file(new_filename, data, image->width, image->height);
   free(data);
+  free(new_filename);
   if (error)
     printf("error %u: %s\n", error, lodepng_error_text(error));
 }
@@ -78,8 +79,8 @@ short *conv(struct Image *image, float *kernel, short kernel_size) {
     for (unsigned short j = 0; j < image->height; j++) {
       for (short m = -border; m <= border; m++) {
         for (short n = -border; n <= border; n++) {
-          if ((short)(m + i) >= 0 && i + m < image->width &&
-              (short)(j + n) >= 0 && j + n < image->height) {
+          if (m + (short)i >= 0 && i + m < image->width &&
+              j + (short)n >= 0 && j + n < image->height) {
             out[j * image->width + i] +=
                 image->data[(j + n) * image->width + i + m] *
                 kernel[(n + border) * kernel_size + (m + border)];
@@ -92,14 +93,14 @@ short *conv(struct Image *image, float *kernel, short kernel_size) {
 }
 
 float *guassian_kernel(short size, float sigma) {
-  float *kernel = malloc(size * size * sizeof(double));
-  float sum = 0;
+  float *kernel = malloc(size * size * sizeof(float));
   short border = size / 2;
+  float sum = 0;
   for (short i = -border; i <= border; i++) {
     for (short j = -border; j <= border; j++) {
       kernel[(i + border) * size + (j + border)] =
-          exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma);
-      sum += kernel[(i + border) * size + (j + border)];
+          exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma * sigma);
+        sum += kernel[(i + border) * size + (j + border)];
     }
   }
   for (short i = 0; i < size; i++) {
@@ -149,6 +150,7 @@ short *gradinet_direction(short *gradient_x, short *gradient_y,
       out[j * width + i] = atan2(gy, gx) * 180 / M_PI;
     }
   }
+  normalize(out, height * width);
   return out;
 }
 
@@ -218,9 +220,8 @@ short *threshold(short *data, short int height, short int width,
     max = max > data[i] ? max : data[i];
   }
 
-  short high_threshold = max * low_ratio;
-  short low_threshold = high_threshold * high_ratio;
-
+  short high_threshold = max * high_ratio;
+  short low_threshold = high_threshold * low_ratio;
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
       if (data[j * width + i] >= high_threshold) {
@@ -263,21 +264,21 @@ short *hysterisis(short *data, short int height, short int width) {
 }
 
 int main(int argc, char *argv[]) {
-  short kernel_size = 3;
-  float low_ratio = 0.1;
-  float high_ratio = 0.3;
-  float sigma = 1.0;
+  short kernel_size = 7;
+  float low_ratio = 0.05;
+  float high_ratio = 0.5;
+  float sigma = 3;
   if (argc < 6 && argc != 2) {
     printf(
-        "Usage: %s <filename> <sigma> <kernel_size> <low_ratio> <high_ratio>\n",
+        "Usage: %s <filename> <sigma> <kernel_size> <high_ratio> <low_ratio>\n",
         argv[0]);
     return 1;
   }
-  if (argc == 5) {
+  if (argc == 6) {
     sigma = atof(argv[2]);
     kernel_size = atoi(argv[3]);
-    low_ratio = atof(argv[4]);
-    high_ratio = atof(argv[5]);
+    low_ratio = atof(argv[5]);
+    high_ratio = atof(argv[4]);
   }
   const char *filename = argv[1];
   struct Image *image = decode_image_gray(filename);
@@ -298,19 +299,34 @@ int main(int argc, char *argv[]) {
       non_maximum(gradient_int, gradient_dir, image->height, image->width);
   short *thre =
       threshold(non_max, image->height, image->width, low_ratio, high_ratio);
-  short *hyste = hysterisis(non_max, image->height, image->width);
+  short *hyste = hysterisis(thre, image->height, image->width);
+
   free(image->data);
-  image->data = hyste;
-  encode_image(image, filename, "_edge");
+
+  normalize(gradient_x, image->width * image->height);
+  image->data = gradient_x;
+  encode_image(image, filename, "_sobel_x");
+
+  normalize(gradient_y, image->width * image->height);
+  image->data = gradient_y;
+  encode_image(image, filename, "_sobel_y");
+
   image->data = gradient_int;
   encode_image(image, filename, "_gradient");
+
   normalize(gradient_dir, image->width * image->height);
   image->data = gradient_dir;
   encode_image(image, filename, "_direction");
-  image->data = thre;
-  encode_image(image, filename, "_threshold");
+
   image->data = non_max;
   encode_image(image, filename, "_non_max");
+
+  image->data = thre;
+  encode_image(image, filename, "_threshold");
+
+  image->data = hyste;
+  encode_image(image, filename, "_edge");
+
   free(gradient_x);
   free(gradient_y);
   free(gradient_int);
