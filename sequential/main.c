@@ -1,5 +1,6 @@
 #include <lodepng.h>
 #include <math.h>
+#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -79,8 +80,8 @@ short *conv(struct Image *image, float *kernel, short kernel_size) {
     for (unsigned short j = 0; j < image->height; j++) {
       for (short m = -border; m <= border; m++) {
         for (short n = -border; n <= border; n++) {
-          if (m + (short)i >= 0 && i + m < image->width &&
-              j + (short)n >= 0 && j + n < image->height) {
+          if (m + (short)i >= 0 && i + m < image->width && j + (short)n >= 0 &&
+              j + n < image->height) {
             out[j * image->width + i] +=
                 image->data[(j + n) * image->width + i + m] *
                 kernel[(n + border) * kernel_size + (m + border)];
@@ -99,8 +100,9 @@ float *guassian_kernel(short size, float sigma) {
   for (short i = -border; i <= border; i++) {
     for (short j = -border; j <= border; j++) {
       kernel[(i + border) * size + (j + border)] =
-          exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma * sigma);
-        sum += kernel[(i + border) * size + (j + border)];
+          exp(-(i * i + j * j) / (2 * sigma * sigma)) /
+          (2 * M_PI * sigma * sigma);
+      sum += kernel[(i + border) * size + (j + border)];
     }
   }
   for (short i = 0; i < size; i++) {
@@ -281,14 +283,10 @@ int main(int argc, char *argv[]) {
     high_ratio = atof(argv[4]);
   }
   const char *filename = argv[1];
+
+  double start = omp_get_wtime();
   struct Image *image = decode_image_gray(filename);
-
-  printf("Image width: %d\n", image->width);
-  printf("Image height: %d\n", image->height);
-  encode_image(image, filename, "_gray");
-
   gaussian_filter(image, kernel_size, sigma);
-  encode_image(image, filename, "_gaussian");
   short *gradient_y = sobel_y(image);
   short *gradient_x = sobel_x(image);
   short *gradient_int =
@@ -300,7 +298,12 @@ int main(int argc, char *argv[]) {
   short *thre =
       threshold(non_max, image->height, image->width, low_ratio, high_ratio);
   short *hyste = hysterisis(thre, image->height, image->width);
+  double end = omp_get_wtime();
+  printf("Image width: %d\n", image->width);
+  printf("Image height: %d\n", image->height);
+  printf("Time: %f\n", end - start);
 
+  encode_image(image, filename, "_guassian");
   free(image->data);
 
   normalize(gradient_x, image->width * image->height);

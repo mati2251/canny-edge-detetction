@@ -14,5 +14,15 @@ include_directories(libs/lodepng/)
 link_directories(libs/lodepng/)
 target_include_directories(lodepng PUBLIC libs/lodepng)
 
+find_package(OpenMP)
+if(OpenMP_C_FOUND)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
+endif()
+
 add_executable(sequential sequential/main.c )
+target_link_libraries(sequential OpenMP::OpenMP_C)
 target_link_libraries(sequential lodepng m)
+
+add_executable(openmp openmp/main.c)
+target_link_libraries(openmp OpenMP::OpenMP_C)
+target_link_libraries(openmp lodepng m)
