@@ -353,6 +353,7 @@ int main(int argc, char *argv[]) {
     short *hysterisised = hysterisis(thresholded, part->height, part->width);
     free(part->data);
     part->data = hysterisised;
+    #pragma omp barrier
     merge(image, part);
     free(part->data);
     free(part);
