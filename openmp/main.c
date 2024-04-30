@@ -3,12 +3,7 @@
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-struct Image {
-  unsigned int width;
-  unsigned int height;
-  short *data;
-};
+#include "../universal/universal.h"
 
 struct Part {
   short *data;
@@ -19,19 +14,6 @@ struct Part {
   unsigned short start_height;
   unsigned short end_height;
 };
-
-short *gray_scale_image(unsigned char *data, unsigned width, unsigned height) {
-  short *image = malloc(width * height * sizeof(short) * 4);
-  for (unsigned i = 0; i < width; i++) {
-    for (unsigned j = 0; j < height; j++) {
-      unsigned char r = data[j * width * 4 + i * 4];
-      unsigned char g = data[j * width * 4 + i * 4 + 1];
-      unsigned char b = data[j * width * 4 + i * 4 + 2];
-      image[j * width + i] = 0.3 * r + 0.59 * g + 0.11 * b;
-    }
-  }
-  return image;
-}
 
 struct Part *divide_image(short *data, unsigned short parts_count,
                           unsigned short padding, unsigned short width,
@@ -77,46 +59,6 @@ void merge(struct Image *image, struct Part *part) {
         image->data[index] = value;
       }
     }
-}
-
-unsigned char *decode_image(const char *filename, unsigned int *width,
-                            unsigned int *height) {
-  unsigned error;
-  unsigned char *data;
-  error = lodepng_decode32_file(&data, width, height, filename);
-
-  if (error)
-    printf("error %u: %s\n", error, lodepng_error_text(error));
-  return data;
-}
-
-void encode_image(struct Image *image, const char *filename,
-                  const char *prefix) {
-  unsigned error;
-
-  char *new_filename = malloc(strlen(filename) + strlen(prefix) + 4);
-  strcpy(new_filename, filename);
-  new_filename[strlen(new_filename) - 4] = '\0';
-  strcat(new_filename, prefix);
-  strcat(new_filename, ".png");
-
-  unsigned char *data = malloc(image->width * image->height * sizeof(char) * 4); 
-  for (unsigned i = 0; i < image->width; i++) {
-    for (unsigned j = 0; j < image->height; j++) {
-      short value = image->data[j * image->width + i];
-      unsigned int index = (j * image->width + i) * 4;
-      data[index] = value;
-      data[index + 1] = value;
-      data[index + 2] = value;
-      data[index + 3] = 255;
-    }
-  }
-
-  error = lodepng_encode32_file(new_filename, data, image->width, image->height);
-  free(new_filename);
-  free(data);
-  if (error)
-    printf("error %u: %s\n", error, lodepng_error_text(error));
 }
 
 short *conv(struct Part *image, float *kernel, short kernel_size) {
@@ -337,8 +279,7 @@ int main(int argc, char *argv[]) {
   int therads_num = omp_get_num_procs();
   int min_padding = kernel_size / 2;
   struct Image *image = malloc(sizeof(struct Image));
-  unsigned char *data = decode_image(filename, &image->width, &image->height);
-  image->data = gray_scale_image(data, image->width, image->height);
+  image = decode_image_gray(filename);
   struct Part *part;
   #pragma omp parallel firstprivate(therads_num, min_padding, kernel_size, sigma, low_ratio, high_ratio) private(part) shared(image) num_threads(therads_num)
   {
@@ -369,6 +310,5 @@ int main(int argc, char *argv[]) {
   encode_image(image, filename, "_edge_omp");
   free(image->data);
   free(image);
-  free(data);
   return 0;
 }
