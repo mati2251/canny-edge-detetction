@@ -1,5 +1,3 @@
-#define CL_TARGET_OPENCL_VERSION 120
-
 #include "../universal/universal.h"
 #include <CL/cl.h>
 #include <lodepng.h>
@@ -15,19 +13,16 @@ void err_handler(const char *file, int line, cl_int code) {
   }
 }
 
-void get_kernel_err(cl_int code, cl_program program, cl_device_id device) {
-  if (code != CL_SUCCESS)
-  {
-    size_t log_size;
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+void get_kernel_err(cl_program program, cl_device_id device) {
+  size_t log_size;
+  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, NULL,
+                        &log_size);
 
-    char *log = (char *)malloc(log_size);
+  char *log = (char *)malloc(log_size);
 
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
-
-    printf("%s\n", log);
-    exit(1);
-  }
+  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, log_size, log,
+                        NULL);
+  printf("%s\n", log);
 }
 
 char *read_kernel(char *filename) {
@@ -47,22 +42,21 @@ char *read_kernel(char *filename) {
   return vadd_kernel_source;
 }
 
-int main(int argc, char **argv) {
-  short kernel_size = 7;
-  float low_ratio = 0.05;
-  float high_ratio = 0.5;
-  float sigma = 3;
-  if (argc < 6 && argc != 2) {
-    printf(
-        "Usage: %s <filename> <sigma> <kernel_size> <high_ratio> <low_ratio>\n",
-        argv[0]);
-    return 1;
+void normalize(short *data, unsigned int size) {
+  short max = 0, min = 0;
+  for (unsigned int i = 0; i < size; i++) {
+    max = max > data[i] ? max : data[i];
+    min = min < data[i] ? min : data[i];
   }
-  if (argc == 6) {
-    sigma = atof(argv[2]);
-    kernel_size = atoi(argv[3]);
-    low_ratio = atof(argv[5]);
-    high_ratio = atof(argv[4]);
+  for (unsigned int i = 0; i < size; i++) {
+    data[i] = (float)(data[i] - min) / (max - min) * 255;
+  }
+}
+
+int main(int argc, char **argv) {
+  if (argc != 2) {
+    printf("Usage: %s <filename>\n", argv[0]);
+    return 1;
   }
   const char *filename = argv[1];
 
@@ -76,29 +70,41 @@ int main(int argc, char **argv) {
   cl_uint ret_num_platforms;
   cl_int ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
   ERR_HANDLER(ret);
-  ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 1, &device, &ret_num_devices);
+  ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device,
+                       &ret_num_devices);
   ERR_HANDLER(ret);
+
   cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &ret);
   ERR_HANDLER(ret);
-  cl_command_queue command_queue = clCreateCommandQueue(context, device, 0, &ret);
-  ERR_HANDLER(ret);
-  
-  cl_mem input = clCreateBuffer(context, CL_MEM_READ_ONLY, image->width * image->height * sizeof(short), NULL, &ret);
-  ERR_HANDLER(ret);
-  cl_mem output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, image->width * image->height * sizeof(short), NULL, &ret);
+  cl_command_queue command_queue =
+      clCreateCommandQueue(context, device, 0, &ret);
   ERR_HANDLER(ret);
 
-  ret = clEnqueueWriteBuffer(command_queue, input, CL_TRUE, 0, image->width * image->height * sizeof(short), image->data, 0, NULL, NULL);
-  
-  char *kernel_source = read_kernel("canny.cl");
-  cl_program program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, NULL, &ret);
+  cl_mem input =
+      clCreateBuffer(context, CL_MEM_READ_ONLY,
+                     image->width * image->height * sizeof(short), NULL, &ret);
+  ERR_HANDLER(ret);
+  cl_mem output =
+      clCreateBuffer(context, CL_MEM_WRITE_ONLY,
+                     image->width * image->height * sizeof(short), NULL, &ret);
   ERR_HANDLER(ret);
 
-  ret = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
-  get_kernel_err(ret, program, device);
+  ret = clEnqueueWriteBuffer(command_queue, input, CL_TRUE, 0,
+                             image->width * image->height * sizeof(short),
+                             image->data, 0, NULL, NULL);
   ERR_HANDLER(ret);
 
-  cl_kernel kernel = clCreateKernel(program, "canny", &ret);
+  char *guassian_source = read_kernel("guassian.cl");
+
+  cl_program guassian_program = clCreateProgramWithSource(
+      context, 1, (const char **)&guassian_source, NULL, &ret);
+  ERR_HANDLER(ret);
+
+  ret = clBuildProgram(guassian_program, 1, &device, NULL, NULL, NULL);
+  get_kernel_err(guassian_program, device);
+  ERR_HANDLER(ret);
+
+  cl_kernel kernel = clCreateKernel(guassian_program, "guassian", &ret);
   ERR_HANDLER(ret);
 
   ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input);
@@ -108,15 +114,20 @@ int main(int argc, char **argv) {
   ERR_HANDLER(ret);
 
   size_t global_work_size[2] = {image->width, image->height};
-  ret = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL, global_work_size, NULL, 0, NULL, NULL);
+  size_t local_work_size[2] = {8, 8};
+  ret = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL, global_work_size,
+                               local_work_size, 0, NULL, NULL);
+  ERR_HANDLER(ret);
 
-  ret = clEnqueueReadBuffer(command_queue, output, CL_TRUE, 0, image->width * image->height * sizeof(short), image->data, 0, NULL, NULL); 
+  ret = clEnqueueReadBuffer(command_queue, output, CL_TRUE, 0,
+                            image->width * image->height * sizeof(short),
+                            image->data, 0, NULL, NULL);
   ERR_HANDLER(ret);
 
   clReleaseMemObject(output);
   clReleaseMemObject(input);
   clReleaseKernel(kernel);
-  clReleaseProgram(program);
+  clReleaseProgram(guassian_program);
   clReleaseCommandQueue(command_queue);
   clReleaseContext(context);
 
