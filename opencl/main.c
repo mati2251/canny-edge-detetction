@@ -60,10 +60,6 @@ int main(int argc, char **argv) {
   }
   const char *filename = argv[1];
 
-  double start = omp_get_wtime();
-
-  struct Image *image = decode_image_gray(filename);
-
   cl_platform_id platform_id = NULL;
   cl_device_id device = NULL;
   cl_uint ret_num_devices;
@@ -80,20 +76,6 @@ int main(int argc, char **argv) {
       clCreateCommandQueue(context, device, 0, &ret);
   ERR_HANDLER(ret);
 
-  cl_mem input =
-      clCreateBuffer(context, CL_MEM_READ_ONLY,
-                     image->width * image->height * sizeof(short), NULL, &ret);
-  ERR_HANDLER(ret);
-  cl_mem output =
-      clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-                     image->width * image->height * sizeof(short), NULL, &ret);
-  ERR_HANDLER(ret);
-
-  ret = clEnqueueWriteBuffer(command_queue, input, CL_TRUE, 0,
-                             image->width * image->height * sizeof(short),
-                             image->data, 0, NULL, NULL);
-  ERR_HANDLER(ret);
-
   char *guassian_source = read_kernel("guassian.cl");
 
   cl_program guassian_program = clCreateProgramWithSource(
@@ -104,36 +86,97 @@ int main(int argc, char **argv) {
   get_kernel_err(guassian_program, device);
   ERR_HANDLER(ret);
 
-  cl_kernel kernel = clCreateKernel(guassian_program, "guassian", &ret);
+  cl_kernel guassian_kernel =
+      clCreateKernel(guassian_program, "guassian", &ret);
   ERR_HANDLER(ret);
 
-  ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input);
+  char *sobel_source = read_kernel("sobel.cl");
+
+  cl_program sobel_program = clCreateProgramWithSource(
+      context, 1, (const char **)&sobel_source, NULL, &ret);
   ERR_HANDLER(ret);
 
-  ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &output);
+  ret = clBuildProgram(sobel_program, 1, &device, NULL, NULL, NULL);
+  get_kernel_err(sobel_program, device);
+  ERR_HANDLER(ret);
+
+  cl_kernel sobel_kernel = clCreateKernel(sobel_program, "sobel", &ret);
+  ERR_HANDLER(ret);
+
+  double start = omp_get_wtime();
+
+  struct Image *image = decode_image_gray(filename);
+
+  cl_mem input =
+      clCreateBuffer(context, CL_MEM_READ_ONLY,
+                     image->width * image->height * sizeof(short), NULL, &ret);
+  ERR_HANDLER(ret);
+  cl_mem guassian =
+      clCreateBuffer(context, CL_MEM_READ_WRITE,
+                     image->width * image->height * sizeof(short), NULL, &ret);
+  ERR_HANDLER(ret);
+
+  cl_mem sobel_gradient =
+      clCreateBuffer(context, CL_MEM_READ_WRITE,
+                     image->width * image->height * sizeof(short), NULL, &ret);
+  ERR_HANDLER(ret);
+
+  cl_mem sobel_direction =
+      clCreateBuffer(context, CL_MEM_READ_WRITE,
+                     image->width * image->height * sizeof(short), NULL, &ret);
+
+  ret = clEnqueueWriteBuffer(command_queue, input, CL_TRUE, 0,
+                             image->width * image->height * sizeof(short),
+                             image->data, 0, NULL, NULL);
+  ERR_HANDLER(ret);
+
+  ret = clSetKernelArg(guassian_kernel, 0, sizeof(cl_mem), &input);
+  ERR_HANDLER(ret);
+
+  ret = clSetKernelArg(guassian_kernel, 1, sizeof(cl_mem), &guassian);
   ERR_HANDLER(ret);
 
   size_t global_work_size[2] = {image->width, image->height};
   size_t local_work_size[2] = {8, 8};
-  ret = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL, global_work_size,
-                               local_work_size, 0, NULL, NULL);
+  ret =
+      clEnqueueNDRangeKernel(command_queue, guassian_kernel, 2, NULL,
+                             global_work_size, local_work_size, 0, NULL, NULL);
   ERR_HANDLER(ret);
 
-  ret = clEnqueueReadBuffer(command_queue, output, CL_TRUE, 0,
+  ret = clSetKernelArg(sobel_kernel, 0, sizeof(cl_mem), &guassian);
+  ERR_HANDLER(ret);
+
+  ret = clSetKernelArg(sobel_kernel, 1, sizeof(cl_mem), &sobel_gradient);
+  ERR_HANDLER(ret);
+
+  ret = clSetKernelArg(sobel_kernel, 2, sizeof(cl_mem), &sobel_direction);
+  ERR_HANDLER(ret);
+
+  ret =
+      clEnqueueNDRangeKernel(command_queue, sobel_kernel, 2, NULL,
+                             global_work_size, local_work_size, 0, NULL, NULL);
+  ERR_HANDLER(ret);
+
+  ret = clEnqueueReadBuffer(command_queue, sobel_gradient, CL_TRUE, 0,
                             image->width * image->height * sizeof(short),
                             image->data, 0, NULL, NULL);
   ERR_HANDLER(ret);
-
-  clReleaseMemObject(output);
+  
+  double end = omp_get_wtime();
+  
+  clReleaseMemObject(guassian);
+  clReleaseMemObject(sobel_gradient);
   clReleaseMemObject(input);
-  clReleaseKernel(kernel);
+  clReleaseKernel(guassian_kernel);
+  clReleaseKernel(sobel_kernel);
   clReleaseProgram(guassian_program);
+  clReleaseProgram(sobel_program);
   clReleaseCommandQueue(command_queue);
   clReleaseContext(context);
+  free(guassian_source);
+  free(sobel_source);
 
-  double end = omp_get_wtime();
-
-  printf("Image loaded in %f seconds\n", end - start);
+  printf("Time: %f\n", end - start);
   encode_image(image, filename, "_opencl");
   return 0;
 }
