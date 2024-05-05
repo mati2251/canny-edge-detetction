@@ -103,6 +103,17 @@ int main(int argc, char **argv) {
   cl_kernel sobel_kernel = clCreateKernel(sobel_program, "sobel", &ret);
   ERR_HANDLER(ret);
 
+  char *canny_source = read_kernel("canny.cl");
+
+  cl_program canny_program = clCreateProgramWithSource(
+      context, 1, (const char **)&canny_source, NULL, &ret);
+  ERR_HANDLER(ret);
+
+  ret = clBuildProgram(canny_program, 1, &device, NULL, NULL, NULL);
+
+  cl_kernel canny_kernel = clCreateKernel(canny_program, "canny", &ret);
+  ERR_HANDLER(ret);
+
   double start = omp_get_wtime();
 
   struct Image *image = decode_image_gray(filename);
@@ -157,13 +168,30 @@ int main(int argc, char **argv) {
                              global_work_size, local_work_size, 0, NULL, NULL);
   ERR_HANDLER(ret);
 
-  ret = clEnqueueReadBuffer(command_queue, sobel_gradient, CL_TRUE, 0,
+  ret = clSetKernelArg(canny_kernel, 0, sizeof(cl_mem), &sobel_gradient);
+  ERR_HANDLER(ret);
+
+  ret = clSetKernelArg(canny_kernel, 1, sizeof(cl_mem), &sobel_direction);
+  ERR_HANDLER(ret);
+
+  cl_mem output =
+      clCreateBuffer(context, CL_MEM_READ_ONLY,
+                     image->width * image->height * sizeof(short), NULL, &ret);
+
+  ret = clSetKernelArg(canny_kernel, 2, sizeof(cl_mem), &output);
+
+  ret =
+      clEnqueueNDRangeKernel(command_queue, canny_kernel, 2, NULL,
+                             global_work_size, local_work_size, 0, NULL, NULL);
+  ERR_HANDLER(ret);
+
+  ret = clEnqueueReadBuffer(command_queue, output, CL_TRUE, 0,
                             image->width * image->height * sizeof(short),
                             image->data, 0, NULL, NULL);
   ERR_HANDLER(ret);
-  
+
   double end = omp_get_wtime();
-  
+
   clReleaseMemObject(guassian);
   clReleaseMemObject(sobel_gradient);
   clReleaseMemObject(input);
