@@ -1,6 +1,6 @@
 #define SIZE 8 
 
-__kernel void canny(__global short * intensity, __global short *direction, __global short *out)
+__kernel void non_max(__global short * intensity, __global short *direction, __global short *out)
 {
   int sum = 0;
   int x = get_global_id(0); 
@@ -9,7 +9,7 @@ __kernel void canny(__global short * intensity, __global short *direction, __glo
   int local_y = get_local_id(1);
   int width = get_global_size(0);
   int height = get_global_size(1);
-  int i = x + y * width;  
+  int i = x + y * width;
 
   __local short local_data[2 + SIZE][2 + SIZE];
  

@@ -42,15 +42,13 @@ char *read_kernel(char *filename) {
   return vadd_kernel_source;
 }
 
-void normalize(short *data, unsigned int size) {
-  short max = 0, min = 0;
-  for (unsigned int i = 0; i < size; i++) {
+short getMax(short *data, unsigned int size, unsigned int width) {
+  int start = 3 * width;
+  short max = 0;
+  for (unsigned int i = start; i < size - start; i++) {
     max = max > data[i] ? max : data[i];
-    min = min < data[i] ? min : data[i];
   }
-  for (unsigned int i = 0; i < size; i++) {
-    data[i] = (float)(data[i] - min) / (max - min) * 255;
-  }
+  return max;
 }
 
 int main(int argc, char **argv) {
@@ -103,15 +101,31 @@ int main(int argc, char **argv) {
   cl_kernel sobel_kernel = clCreateKernel(sobel_program, "sobel", &ret);
   ERR_HANDLER(ret);
 
-  char *canny_source = read_kernel("canny.cl");
+  char *non_max_source = read_kernel("non_max.cl");
 
-  cl_program canny_program = clCreateProgramWithSource(
-      context, 1, (const char **)&canny_source, NULL, &ret);
+  cl_program non_max_program = clCreateProgramWithSource(
+      context, 1, (const char **)&non_max_source, NULL, &ret);
   ERR_HANDLER(ret);
 
-  ret = clBuildProgram(canny_program, 1, &device, NULL, NULL, NULL);
+  ret = clBuildProgram(non_max_program, 1, &device, NULL, NULL, NULL);
+  get_kernel_err(non_max_program, device);
+  ERR_HANDLER(ret);
 
-  cl_kernel canny_kernel = clCreateKernel(canny_program, "canny", &ret);
+  cl_kernel non_max_kernel = clCreateKernel(non_max_program, "non_max", &ret);
+  ERR_HANDLER(ret);
+
+  char *threshold_source = read_kernel("threshold.cl");
+
+  cl_program threshold_program = clCreateProgramWithSource(
+      context, 1, (const char **)&threshold_source, NULL, &ret);
+  ERR_HANDLER(ret);
+
+  ret = clBuildProgram(threshold_program, 1, &device, NULL, NULL, NULL);
+  get_kernel_err(threshold_program, device);
+  ERR_HANDLER(ret);
+
+  cl_kernel threshold_kernel =
+      clCreateKernel(threshold_program, "threshold", &ret);
   ERR_HANDLER(ret);
 
   double start = omp_get_wtime();
@@ -168,28 +182,56 @@ int main(int argc, char **argv) {
                              global_work_size, local_work_size, 0, NULL, NULL);
   ERR_HANDLER(ret);
 
-  ret = clSetKernelArg(canny_kernel, 0, sizeof(cl_mem), &sobel_gradient);
+  ret = clSetKernelArg(non_max_kernel, 0, sizeof(cl_mem), &sobel_gradient);
   ERR_HANDLER(ret);
 
-  ret = clSetKernelArg(canny_kernel, 1, sizeof(cl_mem), &sobel_direction);
+  ret = clSetKernelArg(non_max_kernel, 1, sizeof(cl_mem), &sobel_direction);
+  ERR_HANDLER(ret);
+
+  cl_mem non_max =
+      clCreateBuffer(context, CL_MEM_READ_WRITE,
+                     image->width * image->height * sizeof(short), NULL, &ret);
+
+  ret = clSetKernelArg(non_max_kernel, 2, sizeof(cl_mem), &non_max);
+
+  ret =
+      clEnqueueNDRangeKernel(command_queue, non_max_kernel, 2, NULL,
+                             global_work_size, local_work_size, 0, NULL, NULL);
+  ERR_HANDLER(ret);
+
+  ret = clEnqueueReadBuffer(command_queue, non_max, CL_TRUE, 0,
+                            image->width * image->height * sizeof(short),
+                            image->data, 0, NULL, NULL);
+  ERR_HANDLER(ret);
+
+  short max = getMax(image->data, image->width * image->height, image->width);
+
+  ret = clSetKernelArg(threshold_kernel, 0, sizeof(cl_mem), &non_max);
   ERR_HANDLER(ret);
 
   cl_mem output =
-      clCreateBuffer(context, CL_MEM_READ_ONLY,
+      clCreateBuffer(context, CL_MEM_READ_WRITE,
                      image->width * image->height * sizeof(short), NULL, &ret);
 
-  ret = clSetKernelArg(canny_kernel, 2, sizeof(cl_mem), &output);
-
-  ret =
-      clEnqueueNDRangeKernel(command_queue, canny_kernel, 2, NULL,
-                             global_work_size, local_work_size, 0, NULL, NULL);
+  ret = clSetKernelArg(threshold_kernel, 1, sizeof(cl_mem), &output);
   ERR_HANDLER(ret);
+
+  short high_threshold = max * 0.1;
+  short low_threshold = high_threshold * 0.2;
+
+  ret = clSetKernelArg(threshold_kernel, 2, sizeof(short), &high_threshold);
+  ERR_HANDLER(ret);
+
+  ret = clSetKernelArg(threshold_kernel, 3, sizeof(short), &low_threshold);
+  ERR_HANDLER(ret);
+
+  ret = clEnqueueNDRangeKernel(command_queue, threshold_kernel, 2, NULL,
+                               global_work_size, local_work_size, 0, NULL, NULL);
 
   ret = clEnqueueReadBuffer(command_queue, output, CL_TRUE, 0,
                             image->width * image->height * sizeof(short),
                             image->data, 0, NULL, NULL);
   ERR_HANDLER(ret);
-
   double end = omp_get_wtime();
 
   clReleaseMemObject(guassian);

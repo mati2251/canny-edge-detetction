@@ -45,7 +45,7 @@ __kernel void guassian(__global short * in, __global short *out)
   
   if (local_y == 0){
     local_data[local_x + 1][local_y] = in[i - width];
-  } 
+  }
   
   if (local_y == SIZE - 1){
     local_data[local_x + 1][local_y + 2] = in[i + width];
