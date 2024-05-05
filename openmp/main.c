@@ -207,17 +207,20 @@ height,
   return out;
 }
 
-short *threshold(short *data, short int height, short int width,
-                 float low_ratio, float high_ratio) {
-  short *out = malloc(height * width * sizeof(short));
-
+short max(short *data, short int height, short int width){
   short max = 0;
   for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
     max = max > data[i] ? max : data[i];
   }
+  return max;
+}
+
+short *threshold(short *data, short int height, short int width,
+                 float low_ratio, float high_ratio, short int max) {
+  short *out = malloc(height * width * sizeof(short));
 
   short high_threshold = max * high_ratio;
-  short low_threshold = max * low_ratio;
+  short low_threshold = high_threshold * low_ratio; 
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
       if (data[j * width + i] >= high_threshold) {
@@ -260,9 +263,9 @@ short *hysterisis(short *data, short int height, short int width) {
 
 int main(int argc, char *argv[]) {
   short kernel_size = 3;
-  float low_ratio = 0.05;
-  float high_ratio = 0.5;
-  float sigma = 3;
+  float low_ratio = 0.2;
+  float high_ratio = 0.1;
+  float sigma = 1;
   if (argc < 6 && argc != 2) {
     printf("Usage: %s <filename> <sigma> <kernel_size> <high_ratio> <low_ratio>\n", argv[0]);
     return 1;
@@ -277,20 +280,35 @@ int main(int argc, char *argv[]) {
 
   double start = omp_get_wtime();
   int therads_num = omp_get_num_procs();
-  int min_padding = kernel_size / 2;
+  int min_padding = kernel_size / 2 + 1;
+  short *maxs = malloc(sizeof(short) * therads_num); 
+  short global_max = 0;
   struct Image *image = malloc(sizeof(struct Image));
   image = decode_image_gray(filename);
   struct Part *part;
-  #pragma omp parallel firstprivate(therads_num, min_padding, kernel_size, sigma, low_ratio, high_ratio) private(part) shared(image) num_threads(therads_num)
+  #pragma omp parallel firstprivate(therads_num, min_padding, kernel_size, sigma, low_ratio, high_ratio) private(part) shared(image, maxs, global_max) num_threads(therads_num)
   {
     part = divide_image(image->data, therads_num, min_padding, image->width, image->height, omp_get_thread_num());
+    #pragma omp barrier
     gaussian_filter(part, kernel_size, sigma);
     short *gradient_x = sobel_x(part);
     short *gradient_y = sobel_y(part);
     short *gradient_int = gradient_intensity(gradient_x, gradient_y, part->height, part->width);
     short *gradient_dir = gradinet_direction(gradient_x, gradient_y, part->height, part->width);
     short *non_max = non_maximum(gradient_int, gradient_dir, part->height, part->width);
-    short *thresholded = threshold(non_max, part->height, part->width, low_ratio, high_ratio);
+    short local_max = max(non_max, part->height, part->width);
+    maxs[omp_get_thread_num()] = local_max;
+    # pragma omp critical 
+    {
+      short new_max = 0;
+      for (int i = 0; i < therads_num; i++) {
+        new_max = new_max > maxs[i] ? new_max : maxs[i];
+      }
+      global_max = new_max;
+    }
+    #pragma omp barrier
+    local_max = global_max;
+    short *thresholded = threshold(non_max, part->height, part->width, low_ratio, high_ratio, local_max);
     short *hysterisised = hysterisis(thresholded, part->height, part->width);
     free(part->data);
     part->data = hysterisised;
@@ -307,7 +325,7 @@ int main(int argc, char *argv[]) {
   }
   double end = omp_get_wtime();
   printf("Time: %f\n", end - start);
-  encode_image(image, filename, "_edge_omp");
+  encode_image(image, filename, "_omp");
   free(image->data);
   free(image);
   return 0;
