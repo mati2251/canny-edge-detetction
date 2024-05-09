@@ -158,8 +158,8 @@ short *threshold(short *data, short int height, short int width,
     max = max > data[i] ? max : data[i];
   }
 
-  short high_threshold = max * 0.1;
-  short low_threshold = high_threshold * 0.2;
+  short high_threshold = max * low_ratio;
+  short low_threshold = high_threshold * high_ratio;
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
       if (data[j * width + i] >= high_threshold) {
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
   float low_ratio = 0.2;
   float high_ratio = 0.1;
   float sigma = 1;
-  if (argc < 6 && argc != 2) {
+  if (argc != 6 && argc != 2) {
     printf(
         "Usage: %s <filename> <sigma> <kernel_size> <high_ratio> <low_ratio>\n",
         argv[0]);
@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
     high_ratio = atof(argv[4]);
   }
   const char *filename = argv[1];
-
+  
   double start = omp_get_wtime();
   struct Image *image = decode_image_gray(filename);
   gaussian_filter(image, kernel_size, sigma);
