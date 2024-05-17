@@ -16,9 +16,12 @@ target_include_directories(lodepng PUBLIC libs/lodepng)
 
 find_package(OpenMP)
 find_package(OpenCL)
+find_package( OpenCV REQUIRED )
 if(OpenMP_C_FOUND)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
 endif()
+
+include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 add_executable(sequential sequential/main.c universal/universal.c)
 target_link_libraries(sequential OpenMP::OpenMP_C)
@@ -35,6 +38,10 @@ target_link_libraries(opencl OpenMP::OpenMP_C)
 set_target_properties(opencl PROPERTIES C_STANDARD 11
                                                  C_STANDARD_REQUIRED ON
                                                  C_EXTENSIONS OFF)
+
+add_executable(opencv opencv/main.cpp)
+target_link_libraries(opencv ${OpenCV_LIBS})
+target_link_libraries(opencv OpenMP::OpenMP_C)
 
 target_compile_definitions(opencl PRIVATE CL_TARGET_OPENCL_VERSION=120)
 

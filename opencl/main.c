@@ -128,9 +128,9 @@ int main(int argc, char **argv) {
       clCreateKernel(threshold_program, "threshold", &ret);
   ERR_HANDLER(ret);
 
-  double start = omp_get_wtime();
-
   struct Image *image = decode_image_gray(filename);
+
+  double start = omp_get_wtime();
 
   cl_mem input =
       clCreateBuffer(context, CL_MEM_READ_ONLY,
@@ -232,8 +232,6 @@ int main(int argc, char **argv) {
                             image->width * image->height * sizeof(short),
                             image->data, 0, NULL, NULL);
   ERR_HANDLER(ret);
-  double end = omp_get_wtime();
-
   clReleaseMemObject(guassian);
   clReleaseMemObject(sobel_gradient);
   clReleaseMemObject(input);
@@ -245,6 +243,8 @@ int main(int argc, char **argv) {
   clReleaseContext(context);
   free(guassian_source);
   free(sobel_source);
+  double end = omp_get_wtime();
+
 
   printf("Time: %f\n", end - start);
   encode_image(image, filename, "_opencl");

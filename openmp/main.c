@@ -1,9 +1,10 @@
+#include "../universal/universal.h"
 #include <lodepng.h>
 #include <math.h>
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../universal/universal.h"
+#include <string.h>
 
 struct Part {
   short *data;
@@ -18,7 +19,7 @@ struct Part {
 struct Part *divide_image(short *data, unsigned short parts_count,
                           unsigned short padding, unsigned short width,
                           unsigned short height, unsigned int thread_num) {
-  struct Part *out = malloc(sizeof(struct Part)); 
+  struct Part *out = malloc(sizeof(struct Part));
   unsigned short part_height = ceil((double)height / parts_count);
   unsigned short part_width = width;
   out = malloc(sizeof(struct Part));
@@ -32,7 +33,7 @@ struct Part *divide_image(short *data, unsigned short parts_count,
     out->height -= padding;
     out->top_padding = 0;
   }
-  if (thread_num == parts_count - 1) {
+  if (thread_num == (unsigned int)parts_count - 1) {
     out->end_height = height;
     out->height = height - out->start_height + padding;
     out->bottom_padding = 0;
@@ -50,32 +51,30 @@ struct Part *divide_image(short *data, unsigned short parts_count,
 }
 
 void merge(struct Image *image, struct Part *part) {
-    for (unsigned short k = part->top_padding;
-         k < part->height - part->bottom_padding; k++) {
-      for (unsigned short j = 0; j < part->width; j++) {
-        short value = part->data[k * part->width + j];
-        unsigned int index =
-            ((k + part->start_height - part->top_padding) * image->width + j);
-        image->data[index] = value;
-      }
+  for (unsigned short k = part->top_padding;
+       k < part->height - part->bottom_padding; k++) {
+    for (unsigned short j = 0; j < part->width; j++) {
+      short value = part->data[k * part->width + j];
+      unsigned int index =
+          ((k + part->start_height - part->top_padding) * image->width + j);
+      image->data[index] = value;
     }
+  }
 }
 
 short *conv(struct Part *image, float *kernel, short kernel_size) {
   short border = kernel_size / 2;
   short *out = malloc(image->width * image->height * sizeof(short));
-  for (unsigned int i = 0; i < image->width * image->height; i++) {
-    out[i] = 0;
-  }
+  memset(out, 0, image->width * image->height * sizeof(short));
 
   for (unsigned short i = 0; i < image->width; i++) {
     for (unsigned short j = 0; j < image->height; j++) {
+      unsigned long output_index = j * image->width + i;
       for (short m = -border; m <= border; m++) {
         for (short n = -border; n <= border; n++) {
-          if (m + (short)i >= 0 && i + m < image->width && j + (short)n >= 0
-          &&
+          if (m + (short)i >= 0 && i + m < image->width && j + (short)n >= 0 &&
               j + n < image->height) {
-            out[j * image->width + i] +=
+            out[output_index] +=
                 image->data[(j + n) * image->width + i + m] *
                 kernel[(n + border) * kernel_size + (m + border)];
           }
@@ -163,8 +162,7 @@ short *gradient_intensity(short *gradient_x, short *gradient_y,
   return out;
 }
 
-short *non_maximum(short *gradient_int, short *gradient_dir, short int
-height,
+short *non_maximum(short *gradient_int, short *gradient_dir, short int height,
                    short int width) {
   short *out = malloc(height * width * sizeof(short));
   for (unsigned short i = 0; i < width; i++) {
@@ -207,7 +205,7 @@ height,
   return out;
 }
 
-short max(short *data, short int height, short int width){
+short max(short *data, short int height, short int width) {
   short max = 0;
   for (unsigned int i = 0; i < (unsigned int)(height * width); i++) {
     max = max > data[i] ? max : data[i];
@@ -220,7 +218,7 @@ short *threshold(short *data, short int height, short int width,
   short *out = malloc(height * width * sizeof(short));
 
   short high_threshold = max * high_ratio;
-  short low_threshold = high_threshold * low_ratio; 
+  short low_threshold = high_threshold * low_ratio;
   for (unsigned short i = 0; i < width; i++) {
     for (unsigned short j = 0; j < height; j++) {
       if (data[j * width + i] >= high_threshold) {
@@ -248,9 +246,10 @@ short *hysterisis(short *data, short int height, short int width) {
         if (data[(j - 1) * width + i - 1] == 255 ||
             data[(j - 1) * width + i] == 255 ||
             data[(j - 1) * width + i + 1] == 255 ||
-            data[j * width + i - 1] == 255 || data[j * width + i + 1] == 255
-            || data[(j + 1) * width + i - 1] == 255 || data[(j + 1) * width +
-            i] == 255 || data[(j + 1) * width + i + 1] == 255) {
+            data[j * width + i - 1] == 255 || data[j * width + i + 1] == 255 ||
+            data[(j + 1) * width + i - 1] == 255 ||
+            data[(j + 1) * width + i] == 255 ||
+            data[(j + 1) * width + i + 1] == 255) {
           out[j * width + i] = 255;
         } else {
           out[j * width + i] = 0;
@@ -267,7 +266,9 @@ int main(int argc, char *argv[]) {
   float high_ratio = 0.1;
   float sigma = 1;
   if (argc < 6 && argc != 2) {
-    printf("Usage: %s <filename> <sigma> <kernel_size> <high_ratio> <low_ratio>\n", argv[0]);
+    printf(
+        "Usage: %s <filename> <sigma> <kernel_size> <high_ratio> <low_ratio>\n",
+        argv[0]);
     return 1;
   }
   if (argc == 6) {
@@ -278,27 +279,34 @@ int main(int argc, char *argv[]) {
   }
   const char *filename = argv[1];
 
-  double start = omp_get_wtime();
   int therads_num = omp_get_num_procs();
   int min_padding = kernel_size / 2 + 1;
-  short *maxs = malloc(sizeof(short) * therads_num); 
+  short *maxs = malloc(sizeof(short) * therads_num);
   short global_max = 0;
   struct Image *image = malloc(sizeof(struct Image));
   image = decode_image_gray(filename);
+  double start = omp_get_wtime();
   struct Part *part;
-  #pragma omp parallel firstprivate(therads_num, min_padding, kernel_size, sigma, low_ratio, high_ratio) private(part) shared(image, maxs, global_max) num_threads(therads_num)
+  #pragma omp parallel firstprivate(therads_num, min_padding, kernel_size,       \
+                                      sigma, low_ratio,                        \
+                                      high_ratio) private(part)                \
+    shared(image, maxs, global_max) num_threads(therads_num)
   {
-    part = divide_image(image->data, therads_num, min_padding, image->width, image->height, omp_get_thread_num());
-    #pragma omp barrier
+    part = divide_image(image->data, therads_num, min_padding, image->width,
+                        image->height, omp_get_thread_num());
+   #pragma omp barrier
     gaussian_filter(part, kernel_size, sigma);
     short *gradient_x = sobel_x(part);
     short *gradient_y = sobel_y(part);
-    short *gradient_int = gradient_intensity(gradient_x, gradient_y, part->height, part->width);
-    short *gradient_dir = gradinet_direction(gradient_x, gradient_y, part->height, part->width);
-    short *non_max = non_maximum(gradient_int, gradient_dir, part->height, part->width);
+    short *gradient_int =
+        gradient_intensity(gradient_x, gradient_y, part->height, part->width);
+    short *gradient_dir =
+        gradinet_direction(gradient_x, gradient_y, part->height, part->width);
+    short *non_max =
+        non_maximum(gradient_int, gradient_dir, part->height, part->width);
     short local_max = max(non_max, part->height, part->width);
     maxs[omp_get_thread_num()] = local_max;
-    # pragma omp critical 
+  #pragma omp critical
     {
       short new_max = 0;
       for (int i = 0; i < therads_num; i++) {
@@ -306,13 +314,14 @@ int main(int argc, char *argv[]) {
       }
       global_max = new_max;
     }
-    #pragma omp barrier
+  #pragma omp barrier
     local_max = global_max;
-    short *thresholded = threshold(non_max, part->height, part->width, low_ratio, high_ratio, local_max);
+    short *thresholded = threshold(non_max, part->height, part->width,
+                                   low_ratio, high_ratio, local_max);
     short *hysterisised = hysterisis(thresholded, part->height, part->width);
     free(part->data);
     part->data = hysterisised;
-    #pragma omp barrier
+  #pragma omp barrier
     merge(image, part);
     free(part->data);
     free(part);

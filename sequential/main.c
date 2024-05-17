@@ -4,21 +4,21 @@
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 short *conv(struct Image *image, float *kernel, short kernel_size) {
   short border = kernel_size / 2;
   short *out = malloc(image->width * image->height * sizeof(short));
-  for (unsigned int i = 0; i < image->width * image->height; i++) {
-    out[i] = 0;
-  }
+  memset(out, 0, image->width * image->height * sizeof(short));
 
   for (unsigned short i = 0; i < image->width; i++) {
     for (unsigned short j = 0; j < image->height; j++) {
+      unsigned long output_index = j * image->width + i;
       for (short m = -border; m <= border; m++) {
         for (short n = -border; n <= border; n++) {
           if (m + (short)i >= 0 && i + m < (int)image->width &&
               j + (short)n >= 0 && j + n < (int)image->height) {
-            out[j * image->width + i] +=
+            out[output_index] +=
                 image->data[(j + n) * image->width + i + m] *
                 kernel[(n + border) * kernel_size + (m + border)];
           }
@@ -219,9 +219,9 @@ int main(int argc, char *argv[]) {
     high_ratio = atof(argv[4]);
   }
   const char *filename = argv[1];
-  
-  double start = omp_get_wtime();
+
   struct Image *image = decode_image_gray(filename);
+  double start = omp_get_wtime();
   gaussian_filter(image, kernel_size, sigma);
   short *gradient_y = sobel_y(image);
   short *gradient_x = sobel_x(image);
