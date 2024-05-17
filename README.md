@@ -37,18 +37,18 @@ Images used for creating algorithm (from images folder):
 | 1920x1080  | 0.90s      | 0.46s  | 0.29s  |
 | 4032x2264  | 4.18s      | 1.99s  | 1.40s  |
 
-Performence testing on diffrent size the same [image](https://www.flickr.com/photos/gsfc/6760135001/sizes/s/in/photostream/):
-| Image Size | Sequential | OpenMP | OpenCL |
-|------------|------------|--------|--------|
-| 240x240    | 0.03s      | 0.01s  | 0.00s  |
-| 320x320    | 0.05s      | 0.02s  | 0.01s  |
-| 400x400    | 0.08s      | 0.03s  | 0.02s  |
-| 640x640    | 0.18s      | 0.08s  | 0.06s  |
-| 800x800    | 0.28s      | 0.13s  | 0.08s  |
-| 1024x1024  | 0.57s      | 0.21s  | 0.15s  |
-| 1600x1600  | 1.06s      | 0.47s  | 0.29s  |
-| 2048x2048  | 2.29s      | 0.93s  | 0.56s  |
-| 3072x3072  | 7.32s      | 2.15s  | 1.34s  |
-| 4096x4096  | 13.29s     | 4.45s  | 2.35s  |
-| 5120x5120  | 27.34s     | 8.34s  | 3.71s  |
-| 6144x6144  | 39.24s     | 15.34s | 5.32s  |
+Performence testing on diffrent size the same [image](https://www.flickr.com/photos/gsfc/6760135001/sizes/s/in/photostream/), only canny time (without image loading and saving):
+| Image Size | Sequential | OpenMP | OpenCL | OpenCV |
+|------------|------------|--------|--------|--------|
+| 240x240    | 0.02s      | 0.00s  | 0.00s  | 0.46s  |
+| 320x320    | 0.04s      | 0.01s  | 0.00s  | 0.47s  |
+| 400x400    | 0.06s      | 0.02s  | 0.00s  | 0.46s  |
+| 640x640    | 0.17s      | 0.05s  | 0.01s  | 0.46s  |
+| 800x800    | 0.27s      | 0.08s  | 0.02s  | 0.46s  |
+| 1024x1024  | 0.58s      | 0.11s  | 0.02s  | 0.47s  |
+| 1600x1600  | 1.09s      | 0.25s  | 0.04s  | 0.47s  |
+| 2048x2048  | 3.49s      | 0.52s  | 0.05s  | 0.50s  |
+| 3072x3072  | 7.41s      | 1.13s  | 0.11s  | 0.54s  |
+| 4096x4096  | 13.50s     | 2.79s  | 0.24s  | 0.60s  |
+| 5120x5120  | 35.28s     | 4.06s  | 0.35s  | 0.60s  |
+| 6144x6144  | 47.03s     | 12.55s | 0.51s  | 0.74s  |
